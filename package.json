@@ -1,0 +1,46 @@
+{
+  
+  "name": "btl-mmt",
+  
+  "version": "1.0.0",
+  
+  "main": "index.js",
+  
+  "scripts": {
+  
+    
+  "test": "echo \"Error: no test specified\" && exit 1"
+  
+  },
+  
+  "author": "",
+  
+  "license": "ISC",
+  
+  "description": "",
+  
+  "dependencies": {
+  
+    
+  "axios": "^1.7.7",
+  
+    
+  "bencode": "^2.0.0",
+  
+    
+  "create-torrent": "^6.0.18",
+  
+    
+  "express": "^4.21.1",
+  
+    
+  "mongoose": "^8.8.2",
+  
+    
+  "parse-torrent-updated": "^7.0.5",
+  
+    
+  "webtorrent": "^2.5.6"
+  
+  }
+}
