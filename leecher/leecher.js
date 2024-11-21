@@ -2,12 +2,15 @@ const fs = require('fs');
 const bencode = require('bencode');
 const axios = require('axios');
 const crypto = require('crypto');
-const net = require('net'); // Để tạo socket kết nối với peer
-const path = require('path');
-const {splitFile} = require('../splitFile/splitFile');
+const net = require('net'); 
+const { Worker } = require('worker_threads');
+const TorrentSchema = require("../model/torrentSchema");
+const connectDatabase = require('../database');
+
+connectDatabase();
 
 // Đọc và giải mã file .torrent
-const torrentFilePath = '../file/test.torrent';
+const torrentFilePath = '../file/info.torrent';
 const torrentFile = fs.readFileSync(torrentFilePath);
 
 //Giải mã file torrent
@@ -21,12 +24,12 @@ const pieces = torrentData.info.pieces;  // Các hash của các phần (pieces)
 const totalLength = torrentData.info.length;
 
 const infoHash = crypto.createHash('sha1').update(torrentFile).digest('hex'); // info_hash của file torrent
-console.log("độ dài của infoHash: " + infoHash.length)
+
 const totalPieces = Math.ceil(totalLength / pieceLength); // Tổng số mảnh
 const fileBuffer = Buffer.alloc(totalLength); // Bộ nhớ tạm cho file tải về
-// console.log({infoHash});
 
 const peerId = '--LT0001--' + Math.random().toString(36).substring(2, 12);
+
 console.log("độ dài của peerId: " + peerId.length);
 const leecherPort = 6883;  // Cổng của leecher
 
@@ -46,8 +49,10 @@ async function announceToTracker() {
         
         // Lấy danh sách các peers từ tracker
         let peers = response.data.peers;
-        
-        console.log('Peers:', peers);
+        console.log("in ra các torrent có trong database: ");
+        // let torrent = await TorrentSchema.findOne({info_hash: infoHash});
+        // console.log(torrent);
+        // console.log('Peers:', peers);
 
         peers.forEach(peer => {
             // console.log("infoHash của peer này là: " +  peer.info_hash);
@@ -62,6 +67,96 @@ async function announceToTracker() {
         console.error('Lỗi khi gửi yêu cầu announce:', error);
     }
 }
+
+//-----------------------------------TEST-MULTITHREAD
+
+// function createWorker(port, ip, startPiece, endPiece, pieceLength, fileBuffer, infoHash, peerId) {
+//     return new Promise((resolve, reject) => {
+//         const worker = new Worker('./worker.js', {
+//             workerData: {
+//                 port,
+//                 ip,
+//                 startPiece,
+//                 endPiece,
+//                 pieceLength,
+//                 fileBuffer,
+//                 infoHash,
+//                 peerId,
+//             },
+//         });
+
+//         worker.on('message', resolve); // Worker hoàn thành công việc
+//         worker.on('error', reject); // Worker báo lỗi
+//         worker.on('exit', (code) => {
+//             if (code !== 0) reject(new Error(`Worker thoát với mã lỗi ${code}`));
+//         });
+//     });
+// }
+
+// async function downloadFile(peers, totalPieces, pieceLength, infoHash, peerId) {
+//     const fileBuffer = Buffer.alloc(totalPieces * pieceLength); // Bộ nhớ lưu file
+
+//     const workers = [];
+//     const piecesPerPeer = Math.ceil(totalPieces / peers.length);
+
+//     for (let i = 0; i < peers.length; i++) {
+//         const startPiece = i * piecesPerPeer;
+//         const endPiece = Math.min((i + 1) * piecesPerPeer - 1, totalPieces - 1);
+
+//         console.log(`Peer ${i + 1} sẽ tải từ mảnh ${startPiece} đến ${endPiece}`);
+//         console.log(JSON.stringify(peers[i]), startPiece, endPiece, pieceLength, fileBuffer, infoHash, peerId);
+//         workers.push(createWorker(peers[i].port, peers[i].ip, startPiece, endPiece, pieceLength, fileBuffer, infoHash, peerId));
+//     }
+
+//     await Promise.all(workers);
+//     console.log('Tất cả các mảnh đã được tải thành công.');
+
+//     fs.writeFileSync('output_file.txt', fileBuffer.toString('utf-8'));
+//     console.log('File đã được ghép thành công.');
+// }
+
+
+// // ================== HÀM KHỞI CHẠY ========================
+// async function startLeecher(infoHash, peerId, totalPieces, pieceLength) {
+   
+//     console.log("infoHash cần tìm là: " + infoHash.toString());
+//     // Lấy thông tin torrent từ database
+
+//     // const torrent = await TorrentSchema.findOne({ info_hash: infoHash.toString() });
+//     // if (!torrent) {
+//     //     console.log(`Không tìm thấy torrent với info_hash: ${infoHash}`);
+//     //     return;
+//     // }
+//     console.log("trước khi check db\n");
+//     const torrent = await TorrentSchema.findOne({ info_hash: infoHash });
+//     if (torrent) {
+//         console.log('Result:', torrent);
+//     } else {
+//         console.log('No matching torrent found.');
+//     }
+
+//     // console.log("thông tin về torrent: " + torrent);
+//     // console.log("sau khi check db\n")
+
+//     const peers = torrent.peers; // Lấy danh sách Peer từ database
+
+//     console.log(peers);
+
+//     if (peers.length === 0) {
+//         console.log('Không có Peer nào được lưu trong database.');
+//         return;
+//     }
+
+//     console.log(`Tìm thấy ${peers.length} Peer trong database.`);
+//     console.log(peers);
+
+//     // Tải file từ danh sách Peer
+//     await downloadFile(peers, totalPieces, pieceLength, infoHash, peerId);
+// }
+
+// startLeecher(infoHash, peerId, totalPieces, pieceLength);
+
+
 
 // Hàm tạo handshake
 function createHandshake() {
@@ -126,7 +221,13 @@ function sendRequest(socket, index, begin, length) {
      const request = Buffer.concat([messageLength, messageId, indexBuffer, beginBuffer, lengthBuffer]);
     
     socket.write(request);
-    console.log({request})
+    // console.log("MesageLength: " + messageLength.toString('hex'))
+    // console.log("MesageId: " + messageId.toString('hex'))
+    // console.log("IndexBuffer: " + indexBuffer.toString('hex'))
+    // console.log("BeginBuffer: " + beginBuffer.toString('hex'))
+    // console.log("lengthBuffer: " + lengthBuffer.toString('hex'))
+    // console.log(" ")
+
     console.log(`Đã gửi yêu cầu mảnh ${index}, offset ${begin}, độ dài ${length}`);
 }
 
@@ -160,7 +261,7 @@ function connectToPeer(peer) {
     // Nhận dữ liệu từ peer
     client.on('data', (data) => {
         if(!client.handshaked){
-            console.log('Dữ liệu nhận được:', data);
+            // console.log('Dữ liệu nhận được:', data);
             const handshakeResponse = parseHandshake(data);
 
             console.log("dữ liệu handshake: " + handshakeResponse);
@@ -178,7 +279,7 @@ function connectToPeer(peer) {
             return;
         }
         
-        const outputFilePath = './info_file.txt'; // Ví dụ
+        const outputFilePath = `./${fileName}`; // Ví dụ
         
         // Xử lý phản hồi mảnh
         if(data.length >= 4){
@@ -216,41 +317,7 @@ function connectToPeer(peer) {
                 }
             }
         }
-        // const messageId = data.readUInt8(4); // Message ID ở byte thứ 5
-        
-        // Ghi dữ liệu vào tệp tin
-        // if (request.type === 'piece' && request.index < pieces.length) {
-        //     const pieceData = Buffer.from(request.data, 'base64');
-        //     console.log("mảnh data: " + pieceData)
-        //     // Tính toán offset để ghi đúng vị trí trong file
-        //     const offset = request.index * pieceLength;
-    
-        //     // Mở tệp tin và ghi dữ liệu vào đúng offset
-        //     fs.open(outputFilePath, 'r+', (err, fd) => {
-        //         if (err) {
-        //             console.error('Lỗi khi mở tệp tin:', err);
-        //             return;
-        //         }
-    
-        //         // Ghi dữ liệu phần (piece) vào tệp tin
-        //         fs.write(fd, pieceData, 0, pieceData.length, offset, (err) => {
-        //             if (err) {
-        //                 console.error('Lỗi khi ghi phần vào tệp tin:', err);
-        //             } else {
-        //                 console.log(`Đã ghi piece ${request.index} vào file.`);
-        //             }
-        //         });
-    
-        //         // Đóng tệp tin sau khi ghi
-        //         fs.close(fd, (err) => {
-        //             if (err) {
-        //                 console.error('Lỗi khi đóng tệp tin:', err);
-        //             }
-        //         });
-        //     });
-        // }
-        // Tại đây bạn có thể xử lý dữ liệu để xác minh, tải các phần của file, v.v.
-        // Ví dụ: kiểm tra xem peer có gửi dữ liệu đúng không, và lưu file.
+       
     });
 
     // Xử lý khi kết nối đóng
@@ -264,15 +331,6 @@ function connectToPeer(peer) {
     });
 }
 
-// function createHandshake() {
-//     const protocol = Buffer.from('BitTorrent protocol');
-//     const reserved = Buffer.alloc(8); // 8 byte reserved
-//     const infoHashBuffer = Buffer.from(infoHash, 'hex');
-//     const peerIdBuffer = Buffer.from(peerId);
-    
-//     const handshake = Buffer.concat([Buffer.from([protocol.length]), protocol, reserved, infoHashBuffer, peerIdBuffer]);
-//     return handshake;
-// }
 
 function createHandshake() {
     const protocol = Buffer.from('BitTorrent protocol'); // Tên giao thức BitTorrent
@@ -294,5 +352,5 @@ function createHandshake() {
 
 announceToTracker();
 
-// console.log(torrentData)
+console.log(torrentData)
 

@@ -5,13 +5,28 @@ const path = require('path');
 const axios = require('axios');
 const net = require('net');
 const express = require('express');
-const {splitFile} = require('../splitFile/splitFile');
-// import create_torrent from 'create-torrent';
+const { Worker } = require('worker_threads');
+const os = require('os');
+const TorrentSchema = require("../model/torrentSchema");
 
-const filename = "test";
+function getLocalIP() {
+    const networkInterfaces = os.networkInterfaces(); // Lấy danh sách các giao diện mạng
+    for (const interfaceName in networkInterfaces) {
+        const interfaces = networkInterfaces[interfaceName];
+        for (const net of interfaces) {
+            // Kiểm tra nếu giao diện mạng là IPv4 và không phải địa chỉ nội bộ (127.0.0.1)
+            if (net.family === 'IPv4' && !net.internal) {
+                return net.address; // Trả về địa chỉ IP
+            }
+        }
+    }
+    return 'Không tìm thấy IP phù hợp'; // Trường hợp không tìm thấy IP
+}
+
+const filename = "info";
 
 const filePath = `../file/${filename}.txt`;
-const trackerURL = 'http://192.168.101.31:3000/announce';
+const trackerURL = `http://${getLocalIP()}:3000/announce`;
 const outputFileName = path.join(path.dirname(filePath), `${filename}.torrent`);
 
 // const PORT = 3000;
@@ -25,9 +40,11 @@ async function createTorrent(filePath, trackerURL, outputFileName){
 
     // Đọc dữ liệu file
     const fileData = fs.readFileSync(filePath);
+
     // Tính toán piece length (ở đây chọn 512 KB)
-    const pieceLength = 8; 
+    const pieceLength = 1024;
     const pieces = [];
+
     const FormalPieces = [];
 
     // Chia nhỏ file thành các pieces
@@ -39,9 +56,9 @@ async function createTorrent(filePath, trackerURL, outputFileName){
     }
 
 
-    for(let i = 0; i < pieces.length; i++){
-        console.log(`thông tin mảnh thứ ${i + 1}: ${FormalPieces[i].toString()}`)
-    }
+    // for(let i = 0; i < pieces.length; i++){
+    //     console.log(`thông tin mảnh thứ ${i + 1}: ${FormalPieces[i].toString()}`)
+    // }
 
     console.log("tổng cộng có " + pieces.length + " mảnh")
 
@@ -103,7 +120,8 @@ function startSeederServer(filePath, pieces, pieceLength, infoHash, peerId) {
         socket.handshaked = false;
         // Nhận yêu cầu từ Leecher
         socket.on('data', (data) => {
-            console.log("kiểm tra handshake: " + socket.handshaked )
+            console.log("kiểm tra handshake: " + socket.handshaked)
+            console.log("kiểm tra data do leecher yêu cầu: " + data);
             if(!socket.handshaked){
                 console.log("data từ leecher trả về: " + data);
                 console.log("data-length: "  + data.length)
@@ -124,6 +142,7 @@ function startSeederServer(filePath, pieces, pieceLength, infoHash, peerId) {
                     const handshakeResponse = createHandshake(infoHash, peerId);
                     socket.handshaked = true;
                     console.log("HandShake trả về cho leecher: " + handshakeResponse.toString('hex'));
+
                     // Phân tích từng phần của buffer handshake
                     const protocolLength = handshakeResponse.readUInt8(0); // Byte 0
                     const protocol = handshakeResponse.slice(1, 1 + protocolLength).toString(); // Byte 1–20
@@ -149,25 +168,33 @@ function startSeederServer(filePath, pieces, pieceLength, infoHash, peerId) {
                 console.log("data message:" + data)
                 const messageLength = data.readUInt32BE(0); // Độ dài message
                 const messageId = data.readUInt8(4); // Message ID
-                console.log("thông tin dâta gửi từ phía leecher xin mảnh mới: " + data.readUInt32BE(5))
+                console.log("thông tin data gửi từ phía leecher xin mảnh mới: " + data.readUInt32BE(5))
                 console.log(`Nhận được message ID: ${messageId}, Length: ${messageLength}`);
 
                 if (messageId === 6) { // 6 = "request"
+                    
                     const index = data.readUInt32BE(5); // Chỉ số mảnh
                     console.log("index trước khi concat: " + index)
                     const begin = data.readUInt32BE(9); // Offset trong mảnh
                     const length = data.readUInt32BE(13); // Độ dài yêu cầu
     
                     const pieceData = fileBuffer.slice(index * pieceLength + begin, index * pieceLength + begin + length);
-    
+                    // console.log("độ dài của một mảnh là: " + pieceData);
                     // Tạo phản hồi
+                    const bufIndex = Buffer.alloc(4);
+                    bufIndex.writeUInt32BE(index, 0); // Chỉ số mảnh
+
+                    const bufBegin = Buffer.alloc(4);
+                    bufBegin.writeUInt32BE(begin, 0);
+
                     const response = Buffer.concat([
                         Buffer.alloc(4, pieceData.length + 9), // Tổng độ dài message
-                        Buffer.from([7]), // Message ID = 7 ("piece")
-                        Buffer.alloc(4, index), // Chỉ số mảnh
-                        Buffer.alloc(4, begin), // Offset
+                        Buffer.alloc(1, 7), // Message ID = 7 ("piece")
+                        bufIndex, // Chỉ số mảnh
+                        bufBegin, // Offset
                         pieceData // Dữ liệu của mảnh
                     ]);
+                
 
                     const messageLength = response.readUInt32BE(0); // Đọc độ dài message (4 bytes đầu tiên)
                     const messageId = response.readUInt8(4); // Đọc Message ID (1 byte tiếp theo)
@@ -179,7 +206,7 @@ function startSeederServer(filePath, pieces, pieceLength, infoHash, peerId) {
                     console.log("Message ID:", messageId);
                     console.log("Index:", checkindex);
                     console.log("Begin:", checkbegin);
-                    console.log("Piece Data:", checkpieceData.toString('utf-8')); // In dữ liệu mảnh dưới dạng chuỗi
+                    // console.log("Piece Data:", checkpieceData.toString('utf-8')); // In dữ liệu mảnh dưới dạng chuỗi
                     socket.write(response);
                     console.log(`Đã gửi mảnh ${index}, offset ${begin}, độ dài ${length}`);
                 }
