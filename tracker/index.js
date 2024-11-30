@@ -87,7 +87,7 @@ app.get('/announce', async (req, res) => {
 
 
 // Lắng nghe trên cổng 3000
-app.listen(PORT ,`${getLocalIP()}`, () => {
+app.listen(PORT ,`10.130.112.249`, () => {
  
-    console.log(`Tracker đang chạy tại http://${getLocalIP()}:${PORT}`);
+    console.log(`Tracker đang chạy tại http://10.130.112.249:${PORT}`);
 });

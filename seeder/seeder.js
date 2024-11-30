@@ -26,7 +26,7 @@ function getLocalIP() {
 const filename = "info";
 
 const filePath = `../file/${filename}.txt`;
-const trackerURL = `http://${getLocalIP()}:3000/announce`;
+const trackerURL = `http://10.130.112.249:3000/announce`;
 const outputFileName = path.join(path.dirname(filePath), `${filename}.torrent`);
 
 // const PORT = 3000;

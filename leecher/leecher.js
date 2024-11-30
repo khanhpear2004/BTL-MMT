@@ -35,7 +35,7 @@ const leecherPort = 6883;  // Cổng của leecher
 
 async function announceToTracker() {
     try {
-        console.log("Tracker URL:", trackerURL);
+        console.log("Tracker URL:", Buffer.from(trackerURL).toString());
         const response = await axios.get(trackerURL, {
             params: {
                 info_hash: infoHash,  // Giá trị info_hash từ file torrent
@@ -352,5 +352,5 @@ function createHandshake() {
 
 announceToTracker();
 
-console.log(torrentData)
+
 
